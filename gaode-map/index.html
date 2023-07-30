@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="initial-scale=1.0, user-scalable=no, width=device-width">
+  <script src="../static/jquery.min.js"></script>
+  <title>轨迹回放</title>
+  <style>
+    html,
+    body,
+    #container {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+    }
+    .panel-wrap {
+      background: #fff;
+      
+      padding: 20px;
+      border-radius: 10px;
+    }
+    .control-wrap {
+      position: absolute;
+      right: 0;
+      top: 20px;
+    }
+    
+    .info-wrap {
+      position: absolute;
+
+    }
+  </style>
+</head>
+
+<body>
+<div id="container"></div>
+<div class="panel-wrap control-wrap">
+  <button id="go">跳转实时位置</button>
+  <button id="go2">从头开始</button>
+  <button id="go1">视野跟随</button>
+</div>
+
+<div id="info" class="panel-wrap info-wrap">
+  <div>
+    <span>经度: </span>
+    <span id="lng">无</span>
+  </div>
+</div>
+<script src="../static/mapLoader.js"></script>
+<script type="text/javascript">
+  AMapLoader.load({
+    key: '5c0b84f7227c929ffa195b28cfa95ad9',
+    version: '1.4.15',
+    AMapUI: {
+      version: '1.1',
+      plugins: ['misc/PathSimplifier']
+    }
+  }).then(res => {
+    const map = new AMap.Map('container', {
+      zoom: 4,
+    });
+    /* 获取数据 */
+    $.getJSON('https://a.amap.com/amap-ui/static/data/big-routes.json', function (data) {
+      /* 模拟历史数据和后续更新的数据 */
+      let historyData = data[0].path.slice(0, 10000)
+      const newData = data[0].path.slice(10000)
+      const randomIntegerInRange = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+      const speedArr = new Array(10000).fill('').map((item, index) => {
+        if (index % 2) {
+          return randomIntegerInRange(0, 100)
+        }
+        return 0
+      })
+      const history = [
+        {
+          name: '历史轨迹',
+          path: historyData
+        }
+      ]
+  
+      const pathInstance = new AMapUI.PathSimplifier({
+        zIndex: 100,
+        map: map,
+        autoSetFitView: false,
+        getPath: function(pathData, pathIndex) {
+          return pathData.path;
+        },
+        renderOptions: {
+          pathLineStyle: {
+            strokeStyle: '#000',
+            lineWidth: 2
+          },
+        }
+      })
+      
+      pathInstance.setData(history)
+    
+      /* 创建巡航器 */
+      let navInstance = pathInstance.createPathNavigator(0, {
+        speed: 0
+      });
+      
+      const infoWindow = new AMap.InfoWindow({
+        anchor: 'top-left',
+        isCustom: true,
+        autoMove: false,
+        content: document.getElementById('info'),
+      });
+      map.panTo(historyData[0])
+      map.setZoom(20)
+      infoWindow.open(map, [116.405289, 39.904987])
+     console.log( infoWindow.getIsOpen(), ' infoWindow.getIsOpen()')
+      let prevIndex = 0
+      navInstance.on('start move', () => {
+        
+        const nowSpeed = navInstance.getSpeed()
+        const status = navInstance.getNaviStatus()
+        const cursor = navInstance.getCursor()
+        const index = cursor.idx
+        const next = index + 1
+        const nextSpeed = speedArr[next]
+        
+        /* 当速度为0的时候, 执行下一个速度 */
+        if (status === 'moving' && !nowSpeed) {
+          navInstance.setSpeed(nextSpeed)
+        } else {
+          /* 当速度不是0, 上一个速度坐标值不等于现在坐标值, 更新速度 */
+          if (status === 'moving' && prevIndex !== index) {
+            prevIndex = index
+            navInstance.setSpeed(speedArr[index])
+            navInstance.start(index)
+          }
+        }
+        const position = navInstance.getPosition()
+        // console.log(position, 'position')
+        // console.log(historyData[index][0])
+        console.log(historyData[index], 'historyData')
+        infoWindow.setPosition(position)
+      })
+      navInstance.start()
+      
+      document.querySelector('#go').addEventListener('click', function () {
+        navInstance.start(10000)
+        map.panTo(historyData[9999])
+        map.setZoom(20)
+        newData.forEach((item, index) => {
+          setTimeout(() => {
+            realTime()
+          }, 300 * index)
+        })
+      })
+      
+      document.querySelector('#go1').addEventListener('click', function () {
+        const position = navInstance.getPosition(5000)
+        map.panTo(position)
+        map.setZoom(20)
+      })
+      
+      document.querySelector('#go2').addEventListener('click', function () {
+        navInstance.start(0)
+        map.panTo(historyData[0])
+        map.setZoom(20)
+      })
+      
+      let start = 0
+      function realTime() {
+        const newPath = newData[start]
+        start += 1
+        historyData = historyData.concat([newPath])
+        const history = [
+          {
+            name: '历史轨迹',
+            path: historyData
+          }
+        ]
+        // console.log(history, 'history')
+        const cursor = navInstance.getCursor().clone() //保存巡航器的位置
+        // console.log(cursor, 'cursor')
+        pathInstance.setData(history)
+        navInstance = pathInstance.createPathNavigator(0, {
+          speed: 20
+        })
+        navInstance.start()
+        if (cursor.idx >= 0) {
+          navInstance.moveToPoint(cursor.idx, cursor.tail);
+        }
+      }
+      
+      
+      
+    })
+
+  })
+</script>
+</body>
+
+</html>
